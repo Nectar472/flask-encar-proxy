@@ -1,33 +1,27 @@
-# app.py
 from flask import Flask, request, jsonify
-from playwright.async_api import async_playwright
-import asyncio
+import requests
 
 app = Flask(__name__)
 
-async def fetch_encar_data(url):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        page = await browser.new_page()
-
-        # Настоящий переход на страницу Encar
-        await page.goto(url)
-
-        # Ожидание получения всех запросов (напр., JSON с машинками)
-        response = await page.wait_for_response(lambda r: "car/list" in r.url and r.status == 200)
-        data = await response.json()
-
-        await browser.close()
-        return data
-
-@app.route("/parse", methods=["GET"])
+@app.route('/parse')
 def parse():
     url = request.args.get("url")
     if not url:
-        return jsonify({"error": "Missing URL"}), 400
+        return jsonify({"error": "No URL provided"}), 400
 
-    data = asyncio.run(fetch_encar_data(url))
-    return jsonify(data)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Origin": "https://www.encar.com",
+        "Referer": "https://www.encar.com/",
+        "Accept": "application/json",
+    }
 
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000)
+    # Можно вставить куки, если потребуется
+    cookies = {}
+
+    try:
+        res = requests.get(url, headers=headers, cookies=cookies, timeout=10)
+        res.raise_for_status()
+        return jsonify(res.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
