@@ -54,7 +54,6 @@ BASE_HEADERS = {
     "sec-fetch-site": "cross-site",
 }
 
-
 class EncarBackupProxy:
     def __init__(self):
         self.current_proxy_index = 0
@@ -133,7 +132,11 @@ proxy = EncarBackupProxy()
 async def proxy_catalog(q: str = Query(...), sr: str = Query(...)):
     url = f"https://encar-proxy.habsida.net/api/catalog?count=true&q={q}&sr={sr}"
     result = await proxy.request(url)
-    return result
+
+    if result.get("success"):
+        return JSONResponse(content=result, media_type="application/json")
+    else:
+        return JSONResponse(content=result, status_code=result.get("status", 500), media_type="application/json")
 
 @app.get("/health")
 async def health():
