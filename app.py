@@ -2,6 +2,7 @@ import requests
 import asyncio
 import random
 import time
+import json
 from typing import Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -134,7 +135,12 @@ async def proxy_catalog(q: str = Query(...), sr: str = Query(...)):
     result = await proxy.request(url)
 
     if result.get("success"):
-        return JSONResponse(content=result, media_type="application/json")
+        try:
+            parsed_json = json.loads(result["text"])
+            return JSONResponse(content=parsed_json, media_type="application/json")
+        except Exception as e:
+            logger.error(f"Failed to parse JSON: {e}")
+            return JSONResponse(content={"error": "Failed to parse JSON"}, status_code=500)
     else:
         return JSONResponse(content=result, status_code=result.get("status", 500), media_type="application/json")
 
