@@ -1,27 +1,33 @@
+# app.py
 from flask import Flask, request, jsonify
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
+import asyncio
 
 app = Flask(__name__)
 
-@app.route('/proxy', methods=['GET'])
-def proxy():
-    url = request.args.get('url')
+async def fetch_encar_data(url):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page()
+
+        # Настоящий переход на страницу Encar
+        await page.goto(url)
+
+        # Ожидание получения всех запросов (напр., JSON с машинками)
+        response = await page.wait_for_response(lambda r: "car/list" in r.url and r.status == 200)
+        data = await response.json()
+
+        await browser.close()
+        return data
+
+@app.route("/parse", methods=["GET"])
+def parse():
+    url = request.args.get("url")
     if not url:
-        return jsonify({'error': 'Missing URL'}), 400
+        return jsonify({"error": "Missing URL"}), 400
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
-            page = context.new_page()
-            page.goto(url, timeout=60000)
-
-            content = page.content()
-            browser.close()
-            return content, 200, {'Content-Type': 'text/html'}
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    data = asyncio.run(fetch_encar_data(url))
+    return jsonify(data)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host="0.0.0.0", port=5000)
