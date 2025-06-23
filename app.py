@@ -21,8 +21,12 @@ def proxy_request():
         "Origin": "https://www.encar.com",
         "User-Agent": request.headers.get("User-Agent", "Mozilla/5.0"),
     }
+
     try:
         response = requests.get(target_url, params=params, headers=headers, proxies=PROXY)
+        print("📡 Status Code:", response.status_code)
+        print("📄 Response Preview:", response.text[:500])  # Показывает первые 500 символов
+        response.raise_for_status()
         return jsonify(response.json())
     except Exception as e:
         return jsonify({"error": str(e)})
