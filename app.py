@@ -1,26 +1,28 @@
-from flask import Flask, request, jsonify
 import requests
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route('/api/nav')
-def proxy_encar():
-    base_url = "https://api.encar.com/search/car/list/general"
-    # Собираем параметры GET-запроса и пробрасываем к Encar
-    params = request.args.to_dict()
+PROXY = {
+    "http": "http://tkYhzB2WFMzk6v7R:yH0EdPksqTLURsF2@geo.iproyal.com:12321",
+    "https": "http://tkYhzB2WFMzk6v7R:yH0EdPksqTLURsF2@geo.iproyal.com:12321"
+}
 
+@app.route('/')
+def index():
+    return jsonify({"message": "Encar Proxy API Active"})
+
+@app.route('/api/nav')
+def proxy_request():
+    target_url = "https://api.encar.com/search/car/list/general"
+    params = request.args.to_dict()
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         "Referer": "https://www.encar.com/",
         "Origin": "https://www.encar.com",
-        "Accept": "application/json",
-        "Accept-Language": "ko-KR,ko;q=0.9",
-        # Можно добавить больше заголовков, если потребуется
+        "User-Agent": request.headers.get("User-Agent", "Mozilla/5.0"),
     }
-
     try:
-        response = requests.get(base_url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
+        response = requests.get(target_url, params=params, headers=headers, proxies=PROXY)
         return jsonify(response.json())
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)})
