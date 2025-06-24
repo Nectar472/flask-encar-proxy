@@ -131,7 +131,8 @@ proxy = EncarBackupProxy()
 
 @app.get("/api/catalog")
 async def proxy_catalog(q: str = Query(...), sr: str = Query(...)):
-    url = f"https://encar-proxy.habsida.net/api/catalog?count=true&q={q}&sr={sr}"
+    url = f"url = f"https://api.encar.com/search/car/list?count=true&q={q}&sr={sr}"
+"
     result = await proxy.request(url)
 
     if result.get("success"):
