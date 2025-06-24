@@ -2,6 +2,7 @@ import requests
 import asyncio
 import random
 import time
+import json
 from typing import Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,8 +27,8 @@ app.add_middleware(
 IPROYAL_PROXY_CONFIGS = [
     {
         "name": "Korea Residential",
-        "proxy": "geo.iproyal.com:12321",
-        "auth": "oGKgjVaIooWADkOR:O8J73QYtjYWgQj4m_country-kr",
+        "proxy": "geo.iproyal.com:11200",
+        "auth": "tkYhzB2WFMzk6v7R:yH0EdPksqTLURsF2_country-kr",
         "location": "South Korea",
     },
 ]
@@ -53,7 +54,6 @@ BASE_HEADERS = {
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "cross-site",
 }
-
 
 class EncarBackupProxy:
     def __init__(self):
@@ -133,7 +133,16 @@ proxy = EncarBackupProxy()
 async def proxy_catalog(q: str = Query(...), sr: str = Query(...)):
     url = f"https://encar-proxy.habsida.net/api/catalog?count=true&q={q}&sr={sr}"
     result = await proxy.request(url)
-    return result
+
+    if result.get("success"):
+        try:
+            parsed_json = json.loads(result["text"])
+            return JSONResponse(content=parsed_json, media_type="application/json")
+        except Exception as e:
+            logger.error(f"Failed to parse JSON: {e}")
+            return JSONResponse(content={"error": "Failed to parse JSON"}, status_code=500)
+    else:
+        return JSONResponse(content=result, status_code=result.get("status", 500), media_type="application/json")
 
 @app.get("/health")
 async def health():
