@@ -2,7 +2,6 @@ import requests
 import asyncio
 import random
 import time
-import json
 from typing import Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Твой рабочий прокси IPRoyal Korea
+# ✅ Только один рабочий прокси IPRoyal Korea
 IPROYAL_PROXY_CONFIGS = [
     {
         "name": "Korea Residential",
@@ -54,6 +53,7 @@ BASE_HEADERS = {
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "cross-site",
 }
+
 
 class EncarBackupProxy:
     def __init__(self):
@@ -101,7 +101,7 @@ class EncarBackupProxy:
         self.request_count += 1
         self.session_request_count += 1
 
-    async def request(self, url: str, retries=5):
+    async def request(self, url: str, retries=3):
         for attempt in range(retries):
             try:
                 self._rate_limit()
@@ -110,7 +110,6 @@ class EncarBackupProxy:
                 response = await loop.run_in_executor(
                     None, lambda: self.session.get(url, headers=headers)
                 )
-
                 if response.status_code == 200:
                     return {"success": True, "text": response.text, "status": 200}
                 elif response.status_code == 407:
@@ -122,11 +121,7 @@ class EncarBackupProxy:
                     self._rotate_proxy()
                     await asyncio.sleep(2 ** attempt)
                 else:
-                    return {
-                        "success": False,
-                        "status": response.status_code,
-                        "text": response.text
-                    }
+                    return {"success": False, "status": response.status_code, "text": response.text}
             except Exception as e:
                 logger.error(f"Error: {str(e)}")
                 await asyncio.sleep(1)
@@ -136,18 +131,9 @@ proxy = EncarBackupProxy()
 
 @app.get("/api/catalog")
 async def proxy_catalog(q: str = Query(...), sr: str = Query(...)):
-    url = f"https://api.encar.com/search/car/list?count=true&q={q}&sr={sr}"
+    url = f"https://encar-proxy.habsida.net/api/catalog?count=true&q={q}&sr={sr}"
     result = await proxy.request(url)
-
-    if result.get("success"):
-        try:
-            parsed_json = json.loads(result["text"])
-            return JSONResponse(content=parsed_json, media_type="application/json")
-        except Exception as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            return JSONResponse(content={"error": "Failed to parse JSON"}, status_code=500)
-    else:
-        return JSONResponse(content=result, status_code=result.get("status", 500), media_type="application/json")
+    return result
 
 @app.get("/health")
 async def health():
