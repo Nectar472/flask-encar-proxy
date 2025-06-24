@@ -1,19 +1,20 @@
-import requests
+from urllib.parse import quote
+import httpx
 import asyncio
 import random
 import time
+import logging
 import json
+import re
 from typing import Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import logging
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Encar Backup Proxy", version="1.0")
+app = FastAPI(title="Encar Proxy (Render Ready)", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,145 +24,113 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Только один рабочий прокси IPRoyal Korea
-IPROYAL_PROXY_CONFIGS = [
+PROXY_CONFIGS = [
     {
-        "name": "Korea Residential",
+        "name": "IPRoyal Korea Residential",
         "proxy": "geo.iproyal.com:11200",
         "auth": "tkYhzB2WFMzk6v7R:yH0EdPksqTLURsF2_country-kr",
         "location": "South Korea",
+        "provider": "iproyal",
+    },
+    {
+        "name": "Oxylabs Korea Residential",
+        "proxy": "pr.oxylabs.io:7777",
+        "auth": "customer-adapt_Yf2Vn-cc-kr:2NUmsvXdgsc+tm5",
+        "location": "South Korea",
+        "provider": "oxylabs",
     },
 ]
 
-def get_proxy_config(proxy_info):
-    proxy_url = f"http://{proxy_info['auth']}@{proxy_info['proxy']}"
-    return {"http": proxy_url, "https": proxy_url}
-
 USER_AGENTS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.78 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 ]
 
-BASE_HEADERS = {
-    "accept": "*/*",
-    "accept-language": "en,ru;q=0.9",
-    "origin": "https://cars.prokorea.trading",
-    "referer": "https://cars.prokorea.trading/",
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"macOS"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "cross-site",
-}
-
-class EncarBackupProxy:
+class EncarProxyClient:
     def __init__(self):
         self.current_proxy_index = 0
         self.request_count = 0
-        self.session_request_count = 0
         self.last_request_time = 0
-        self._create_fresh_session()
+        self.session_rotation_count = 0
 
-    def _create_fresh_session(self):
-        if hasattr(self, "session"):
-            self.session.close()
-        self.session = requests.Session()
-        self.session.timeout = (10, 30)
-        self.session.max_redirects = 3
-        self._rotate_proxy()
-        self.session_request_count = 0
-        logger.info("New session created")
+    def _get_dynamic_headers(self) -> Dict[str, str]:
+        ua = random.choice(USER_AGENTS)
+        headers = {
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "ko-KR,ko;q=0.9",
+            "origin": "http://www.encar.com",
+            "referer": "http://www.encar.com/",
+            "user-agent": ua,
+        }
+        return headers
 
     def _rotate_proxy(self):
-        proxy_info = IPROYAL_PROXY_CONFIGS[self.current_proxy_index % len(IPROYAL_PROXY_CONFIGS)]
-        proxy_config = get_proxy_config(proxy_info)
-        self.session.proxies = proxy_config
+        proxy_info = PROXY_CONFIGS[self.current_proxy_index % len(PROXY_CONFIGS)]
         self.current_proxy_index += 1
-        logger.info(f"Using proxy: {proxy_info['name']} ({proxy_info['location']})")
-
-    def _get_headers(self):
-        ua = random.choice(USER_AGENTS)
-        headers = BASE_HEADERS.copy()
-        headers["user-agent"] = ua
-        headers["sec-ch-ua"] = '"Google Chrome";v="137", "Chromium";v="137", "Not.A/Brand";v="24"'
-        return headers
+        logger.info(f"Switched to proxy: {proxy_info['name']} ({proxy_info['location']})")
+        return proxy_info
 
     def _rate_limit(self):
         now = time.time()
         if now - self.last_request_time < 0.5:
             time.sleep(0.5 - (now - self.last_request_time))
         self.last_request_time = time.time()
-
-        if self.request_count % 20 == 0 and self.request_count > 0:
+        if self.request_count % 15 == 0:
             self._rotate_proxy()
-        if self.session_request_count >= 50:
-            self._create_fresh_session()
-
+        if self.request_count % 50 == 0:
+            self.session_rotation_count += 1
         self.request_count += 1
-        self.session_request_count += 1
 
-    async def request(self, url: str, retries=5):
-        for attempt in range(retries):
+    async def make_request(self, url: str, max_retries: int = 5) -> Dict:
+        for attempt in range(max_retries):
             try:
                 self._rate_limit()
-                headers = self._get_headers()
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None, lambda: self.session.get(url, headers=headers)
-                )
+                headers = self._get_dynamic_headers()
+                proxy_info = self._rotate_proxy()
+                proxy_url = f"http://{proxy_info['auth']}@{proxy_info['proxy']}"
+                transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
+                async with httpx.AsyncClient(transport=transport, timeout=30) as client:
+                    response = await client.get(url, headers=headers)
                 if response.status_code == 200:
-                    return {"success": True, "text": response.text, "status": 200}
-                elif response.status_code == 407:
-                    self._rotate_proxy()
-                elif response.status_code == 403:
-                    self._create_fresh_session()
-                    await asyncio.sleep(1)
-                elif response.status_code in [429, 503]:
-                    self._rotate_proxy()
-                    await asyncio.sleep(2 ** attempt)
+                    return {"success": True, "status_code": 200, "text": response.text}
+                elif response.status_code in [403, 407, 429, 503]:
+                    await asyncio.sleep(5 ** attempt)
+                    continue
                 else:
-                    return {"success": False, "status": response.status_code, "text": response.text}
+                    return {"success": False, "status_code": response.status_code, "text": response.text}
             except Exception as e:
-                logger.error(f"Error: {str(e)}")
+                logger.error(f"Request failed: {type(e).__name__}: {e}")
                 await asyncio.sleep(3)
         return {"success": False, "error": "Max retries exceeded"}
 
-proxy = EncarBackupProxy()
+proxy_client = EncarProxyClient()
 
 @app.get("/api/catalog")
-async def proxy_catalog(q: str = Query(...), sr: str = Query(...)):
-    url = f"https://api.encar.com/search/car/list?count=true&q={q}&sr={sr}"
-    result = await proxy.request(url)
-
+async def proxy_general(q: str = Query(...), inav: str = Query(...)):
+    encoded_q = quote(q, safe="()_.")
+    encoded_inav = quote(inav, safe="|")
+    url = f"https://api.encar.com/search/car/list/general?count=true&q={encoded_q}&inav={encoded_inav}"
+    result = await proxy_client.make_request(url)
     if result.get("success"):
         try:
-            parsed_json = json.loads(result["text"])
-            return JSONResponse(content=parsed_json, media_type="application/json")
-        except Exception as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            return JSONResponse(content={"error": "Failed to parse JSON"}, status_code=500)
-    else:
-        return JSONResponse(content=result, status_code=result.get("status", 500), media_type="application/json")
+            parsed = json.loads(result["text"])
+            return JSONResponse(content=parsed)
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON received: {result['text'][:300]}")
+            return JSONResponse(status_code=502, content={"error": "Invalid JSON"})
+    logger.warning(f"Request failed. Status: {result.get('status_code')}, Text: {result.get('text', '')[:300]}")
+    return JSONResponse(status_code=502, content=result)
 
 @app.get("/health")
 async def health():
-    current_index = (proxy.current_proxy_index - 1) % len(IPROYAL_PROXY_CONFIGS)
-    current_proxy = IPROYAL_PROXY_CONFIGS[current_index]
     return {
         "status": "ok",
-        "proxy": current_proxy["name"],
-        "location": current_proxy["location"],
-        "requests": proxy.request_count,
-        "session_requests": proxy.session_request_count,
-    }
-
-@app.get("/")
-async def root():
-    return {
-        "service": "Backup Encar Proxy",
-        "version": "1.0",
-        "endpoints": ["/api/catalog", "/health"]
+        "proxy_index": proxy_client.current_proxy_index,
+        "request_count": proxy_client.request_count,
+        "session_rotations": proxy_client.session_rotation_count,
     }
 
 if __name__ == "__main__":
