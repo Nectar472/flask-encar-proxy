@@ -101,7 +101,7 @@ class EncarBackupProxy:
         self.request_count += 1
         self.session_request_count += 1
 
-    async def request(self, url: str, retries=3):
+    async def request(self, url: str, retries=5):
         for attempt in range(retries):
             try:
                 self._rate_limit()
@@ -124,7 +124,7 @@ class EncarBackupProxy:
                     return {"success": False, "status": response.status_code, "text": response.text}
             except Exception as e:
                 logger.error(f"Error: {str(e)}")
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
         return {"success": False, "error": "Max retries exceeded"}
 
 proxy = EncarBackupProxy()
