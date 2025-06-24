@@ -110,18 +110,22 @@ class EncarBackupProxy:
                 response =  loop.run_in_executor(
                     None, lambda: self.session.get(url, headers=headers)
                 )
-              if response.status_code == 200:
+             if response.status_code == 200:
     return {"success": True, "text": response.text, "status": 200}
 elif response.status_code == 407:
     self._rotate_proxy()
 elif response.status_code == 403:
     self._create_fresh_session()
-    await asyncio.sleep(1) 
+    await asyncio.sleep(1)
 elif response.status_code in [429, 503]:
     self._rotate_proxy()
-    await asyncio.sleep(2 ** attempt) # await добавлен
+    await asyncio.sleep(2 ** attempt)
 else:
-    return {"success": False, "status": response.status_code, "text": response.text}
+    return {
+        "success": False,
+        "status": response.status_code,
+        "text": response.text
+    }
 
 
 proxy = EncarBackupProxy()
